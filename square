@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# run experiments for varying total variables/forgetting variables/clauses
+#
+# to stop cleanly: square -s
+
+RUNS=10
+LOGDIR=$HOME/temp/square
+
+! [ -d $LOGDIR ] && echo "no $LOGDIR directory" && exit 1
+
+[ "$1" = '-s' ] && touch squarestop && echo "stop programmed" && exit 0
+[ $# -gt 0 ] && echo "invalid parameter(s): $*" && exit 1
+
+N=$(ps x | grep -c 's[q]uare$' -)
+[ $N -gt 2 ] && echo 'already running' && exit 1
+
+rm -f squarestop
+
+N=0
+
+for V in $(seq 3 10);
+do
+	for F in $(seq 0 $V);
+	do
+		for C in $(seq 2 $((V * 5)));
+		do
+			[ $N = 0 ] && \
+			printf "%10s %10s %10s\n" VARIABLES FORGET CLAUSES
+			N=$(((N+1)%20))
+			printf "%10d %10d %10d\n" $V $F $C
+
+			LOG=$LOGDIR/random-$V-$F-$C.log
+
+			[ -f $LOG ] && \
+				[ $(grep -c '^END$' $LOG) = $RUNS ] && \
+				continue
+
+			VARIABLES=$V FORGET=$F CLAUSES=$C run -n $RUNS > $LOG
+
+			[ -f squarestop ] && rm squarestop && exit
+		done
+	done
+done
+

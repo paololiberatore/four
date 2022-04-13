@@ -1,0 +1,96 @@
+#!/bin/sh
+#
+# run the four forgetting algorithms on a random formula
+
+N=0
+[ "$1" = '-1' ] && N=1 && shift 1
+[ "$1" = '-n' ] && shift 1 && [ $# -gt 0 ] && N="$1" && shift 1
+[ $# -ge 1 ] && FORMULA=$1 && N=1
+
+GENERATOR=generate.py
+SOLVERS="close eliminate linear backtrack"
+VARIABLES=${VARIABLES:=6}
+FORGET=${FORGET:=2}
+CLAUSES=${CLAUSES:=18}
+
+[ $FORGET = 0 ] && VARFORGET='' || \
+VARFORGET=$(echo 'abcdefghijklmnopqrstuvwxyz' | cut -c 1-$FORGET)
+
+while true;
+do
+	echo 'BEGIN'
+
+	echo "GENERATOR: $GENERATOR"
+
+	[ "$FORMULA" = '' ] && \
+		{ $GENERATOR $VARIABLES $CLAUSES > formula.txt; \
+		  FORMULA=formula.txt; }
+	echo -n "FORMULA: "
+	cat $FORMULA
+	echo "VARFORGET: $VARFORGET"
+
+	printf "%-10s %8s %8s %8s %8s %8s %8s %9s %8s\n" \
+		SOLVER VARS FORGET CLAUSES SIZE MEMORY TIME SECS KB
+	rm -f result-* forget-*
+
+	for S in $SOLVERS;
+	do
+		env time -f '%U\n%M' timeout --foreground 10 \
+			$S.py -f "$VARFORGET" $FORMULA \
+			2> time.txt > result-$S.txt
+		RES=$?
+		SECS=$(head -1 time.txt)
+		KB=$(tail -1 time.txt)
+
+		if [ $RES = 124 ];
+		then
+			printf "%-10s %8d %8d %8d %8s %8s %8s %9s %8s\n"  \
+				$S $VARIABLES $FORGET $CLAUSES \
+				TIMEOUT TIMEOUT TIMEOUT TIMEOUT TIMEOUT TIMEOUT
+			continue
+		fi
+
+		grep -v '^#' result-$S.txt | tr '\n' ' ' > forget-$S.txt
+		SIZE=$(cat forget-$S.txt | tr -d ' -' | wc -c - | cut -d' ' -f1)
+
+		MEMORY=$(grep '^#M='  result-$S.txt | \
+		cut -d' ' -f1 | cut -d= -f2 | sort -n | tail -1)
+
+		TIME=$({ echo 0; grep '^#T='  result-$S.txt | \
+		cut -d' ' -f1 | cut -d= -f2 | sed 's,$,+,'; echo p; } | dc)
+
+		printf "%-10s %8d %8d %8d %8d %8d %8d"  \
+			$S $VARIABLES $FORGET $CLAUSES \
+			$SIZE $MEMORY $TIME
+		printf "%10.3f %8d\n" $SECS $KB
+	done
+
+	if [ $VARIABLES -ge 10 ];
+	then
+		echo 'EQUIVALENCE: ....'
+	else
+		BEFORE=$(date +%s.%N)
+		echo -n 'EQUIVALENCE: '
+		equivalent.py forget-{close,eliminate}.txt | tr -d '\n'
+		R1=$?
+		equivalent.py forget-{eliminate,linear}.txt | tr -d '\n'
+		R2=$?
+		equivalent.py forget-{linear,backtrack}.txt | tr -d '\n'
+		R3=$?
+		equivalent.py forget-{backtrack,close}.txt | tr -d '\n'
+		R4=$?
+		AFTER=$(date +%s.%N)
+		dc -e "[ (] n 3k $AFTER $BEFORE - 1 / n [)] p"
+		if [ $R1 != 0 ] || [ $R2 != 0 ] || [ $R3 != 0 ] || [ $R4 != 0 ];
+		then
+			break
+		fi
+	fi
+
+	echo 'END'
+
+	N=$((N-1))
+	[ $N = 0 ] && break
+	FORMULA=''
+done
+
